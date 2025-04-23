@@ -1,0 +1,29 @@
+[package]
+name = "track-rs"
+description = "Blazingly Fast™ Audio tracker TUI written entire in Rust®"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository= "https://github.com/tomasguinzburg/track-rs"
+readme="README.md"
+keywords=["audio", "daw", "tracker", "production", "music"]
+categories=["multimedia", "multimedia::audio", "command-line-interface"]
+
+[dependencies]
+rodio = "0.20.1"
+ratatui = { version = "0.29.0", features = ["crossterm"] }
+crossterm = "0.29.0"
+anyhow = "1.0"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+correctness = "deny"
+suspicious = "deny"
+complexity = "deny"
+perf = "deny"
+style = "deny"
+cargo = "deny"
+multiple-crate-versions =  { level = "allow", priority = 1}
+pedantic = "warn"
