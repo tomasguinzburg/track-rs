@@ -1,6 +1,10 @@
+use crossterm::{
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    prelude::Backend,
+    prelude::CrosstermBackend,
     style::{Color, Style},
     text::Line,
     widgets::{Block, Borders, Cell, Paragraph, Row, Table},
@@ -9,27 +13,52 @@ use ratatui::{
 
 use crate::{state::App, tracker::PatternStep};
 
-pub fn draw<B: Backend>(terminal: &mut Terminal<B>, app_state: &App) {
-    terminal
-        .draw(|f| {
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .margin(1)
-                .constraints(
-                    [
-                        Constraint::Percentage(2),
-                        Constraint::Percentage(90),
-                        Constraint::Percentage(5),
-                    ]
-                    .as_ref(),
-                )
-                .split(f.area());
+pub struct TUI<W: std::io::Write> {
+    pub terminal: Terminal<CrosstermBackend<W>>,
+}
 
-            draw_title_bar(f, chunks[0], app_state);
-            draw_pattern_editor(f, chunks[1], app_state);
-            draw_status_bar(f, chunks[2], app_state);
-        })
-        .unwrap();
+impl<W: std::io::Write> TUI<W> {
+    pub fn new(writer: W) -> anyhow::Result<Self> {
+        enable_raw_mode()?;
+        let mut w = writer;
+        execute!(w, EnterAlternateScreen)?;
+
+        let backend = CrosstermBackend::new(w);
+        let terminal = Terminal::new(backend)?;
+
+        Ok(TUI { terminal })
+    }
+
+    pub fn destroy(&mut self) -> anyhow::Result<()> {
+        disable_raw_mode()?;
+        execute!(self.terminal.backend_mut(), LeaveAlternateScreen)?;
+        self.terminal.show_cursor()?;
+
+        Ok(())
+    }
+
+    pub fn draw(&mut self, state: &App) {
+        self.terminal
+            .draw(|f| {
+                let chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .margin(1)
+                    .constraints(
+                        [
+                            Constraint::Percentage(2),
+                            Constraint::Percentage(90),
+                            Constraint::Percentage(5),
+                        ]
+                        .as_ref(),
+                    )
+                    .split(f.area());
+
+                draw_title_bar(f, chunks[0], state);
+                draw_pattern_editor(f, chunks[1], state);
+                draw_status_bar(f, chunks[2], state);
+            })
+            .unwrap();
+    }
 }
 
 fn draw_title_bar(f: &mut Frame, area: Rect, _: &App) {

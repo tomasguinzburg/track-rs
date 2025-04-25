@@ -1,110 +1,41 @@
 use audio::AudioEngine;
-use crossterm::{
-    event::{self, Event as CEvent, KeyCode, KeyEvent},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
-use state::{App, CursorOffset, PlaybackState};
+use state::{App, PlaybackState};
 
-use ratatui::{backend::CrosstermBackend, Terminal};
 use std::{
-    io::{stdout, Stdout},
-    sync::mpsc::{self, Receiver},
+    io::stdout,
+    sync::mpsc::Receiver,
     thread,
     time::{Duration, Instant},
 };
-use tracker::{Note, NotePitch};
+use ui::TUI;
 
 mod audio;
+mod bindings;
 mod state;
 mod tracker;
 mod ui;
 
-fn startup_tui() -> anyhow::Result<Terminal<CrosstermBackend<Stdout>>> {
-    enable_raw_mode()?;
-    let mut stdout = stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Startup:
+    let audio_engine = AudioEngine::new()?;
+    let mut tui = TUI::new(stdout())?;
+    let mut app_state = App::new();
 
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-    terminal.clear()?;
+    let listener = bindings::listen();
 
-    Ok(terminal)
+    //Main loop
+    main_loop(&mut app_state, &mut tui, &audio_engine, &listener);
+
+    tui.destroy()?;
+
+    Ok(())
 }
 
-fn startup_stdin_channel() -> Receiver<crossterm::event::KeyEvent> {
-    let (tx, rx) = mpsc::channel();
-    thread::spawn(move || {
-        loop {
-            if event::poll(Duration::from_millis(100)).expect("Polling should be fine") {
-                if let CEvent::Key(key) = event::read().expect("Reading an event as well") {
-                    if tx.send(key).is_err() {
-                        break;
-                    }
-                }
-            }
-            //TODO: sleep the thread for lower cpu usage?
-        }
-    });
-
-    rx
-}
-
-fn handle_cmd_input(key: KeyEvent, app_state: &mut App) {
-    match key.code {
-        KeyCode::Char('q' | 'Q') => app_state.shutdown(),
-        KeyCode::Char(' ') => app_state.toggle_playback(),
-        KeyCode::Char('k') => app_state.offset_cursor(&CursorOffset::Neg(1), &CursorOffset::None),
-        KeyCode::Char('j') => app_state.offset_cursor(&CursorOffset::Pos(1), &CursorOffset::None),
-        KeyCode::Char('h') => app_state.offset_cursor(&CursorOffset::None, &CursorOffset::Neg(1)),
-        KeyCode::Char('l') => app_state.offset_cursor(&CursorOffset::None, &CursorOffset::Pos(1)),
-
-        // TODO: inputs for notes
-        KeyCode::Char('z') => app_state.insert_note_under_cursor(Some(Note {
-            pitch: NotePitch::C,
-            octave: app_state.octave,
-        })),
-        KeyCode::Char('x') => app_state.insert_note_under_cursor(Some(Note {
-            pitch: NotePitch::D,
-            octave: app_state.octave,
-        })),
-        KeyCode::Char('c') => app_state.insert_note_under_cursor(Some(Note {
-            pitch: NotePitch::E,
-            octave: app_state.octave,
-        })),
-        KeyCode::Char('v') => app_state.insert_note_under_cursor(Some(Note {
-            pitch: NotePitch::F,
-            octave: app_state.octave,
-        })),
-        KeyCode::Char('b') => app_state.insert_note_under_cursor(Some(Note {
-            pitch: NotePitch::G,
-            octave: app_state.octave,
-        })),
-        KeyCode::Char('n') => app_state.insert_note_under_cursor(Some(Note {
-            pitch: NotePitch::A,
-            octave: app_state.octave,
-        })),
-        KeyCode::Char('m') => app_state.insert_note_under_cursor(Some(Note {
-            pitch: NotePitch::B,
-            octave: app_state.octave,
-        })),
-        KeyCode::Char(',') => app_state.insert_note_under_cursor(Some(Note {
-            pitch: NotePitch::C,
-            octave: app_state.octave + 1,
-        })),
-        KeyCode::Delete => app_state.insert_note_under_cursor(None),
-        KeyCode::Char('a') => app_state.octave = app_state.octave.saturating_sub(1).clamp(0, 9),
-        KeyCode::Char('s') => app_state.octave = app_state.octave.saturating_add(1).clamp(0, 9),
-        // KeyCode::Char('?') => open_help_floating_pane
-        _ => {}
-    }
-}
-
-fn main_loop<B: ratatui::backend::Backend>(
+fn main_loop<W: std::io::Write>(
     app_state: &mut App,
-    terminal: &mut Terminal<B>,
+    tui: &mut TUI<W>,
     audio_engine: &AudioEngine,
-    commands_rx: &Receiver<crossterm::event::KeyEvent>,
+    listener: &Receiver<crossterm::event::KeyEvent>,
 ) {
     let mut last_frame = Instant::now();
     let frame_period = Duration::from_millis(50); //UI refresh rate
@@ -161,14 +92,12 @@ fn main_loop<B: ratatui::backend::Backend>(
 
         // Handle input
         // TODO: move to its own thingy
-        if let Ok(key) = commands_rx.try_recv() {
-            handle_cmd_input(key, app_state);
-        }
+        bindings::handle(listener, app_state);
 
         //Draw UI
         // TODO: move to its own thingy, renderer maybe?
         if last_frame.elapsed() >= frame_period {
-            ui::draw(terminal, app_state);
+            tui.draw(app_state);
             last_frame = Instant::now();
         }
 
@@ -194,29 +123,4 @@ fn main_loop<B: ratatui::backend::Backend>(
 
         thread::sleep(sleep_time);
     }
-}
-
-fn dismantle_tui<B: ratatui::backend::Backend + std::io::Write>(terminal: &mut Terminal<B>) -> anyhow::Result<()> {
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
-
-    Ok(())
-}
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Startup:
-    let audio_engine = AudioEngine::new()?;
-    let mut terminal = startup_tui()?;
-    let mut app_state = App::new();
-
-    let commands_rx = startup_stdin_channel();
-
-    //Main loop
-    main_loop(&mut app_state, &mut terminal, &audio_engine, &commands_rx);
-
-    //Winddown
-    dismantle_tui(&mut terminal)?;
-
-    Ok(())
 }
