@@ -17,14 +17,14 @@ mod ui;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Startup:
-    let audio_engine = AudioEngine::new()?;
+    let mut audio_engine = AudioEngine::new()?;
     let mut tui = TUI::new(stdout())?;
     let mut app_state = App::new();
 
     let listener = bindings::listen();
 
     //Main loop
-    main_loop(&mut app_state, &mut tui, &audio_engine, &listener);
+    main_loop(&mut app_state, &mut tui, &mut audio_engine, &listener);
 
     tui.destroy()?;
 
@@ -34,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn main_loop<W: std::io::Write>(
     app_state: &mut App,
     tui: &mut TUI<W>,
-    audio_engine: &AudioEngine,
+    audio_engine: &mut AudioEngine,
     listener: &Receiver<crossterm::event::KeyEvent>,
 ) {
     let mut last_frame = Instant::now();
@@ -78,8 +78,8 @@ fn main_loop<W: std::io::Write>(
                     for track_idx in 0..app_state.pattern.tracks.len() {
                         if let Some(step) = app_state.pattern.get_step(track_idx, current_row).copied() {
                             if let Some(note) = step.note {
-                                audio_engine.play_note(note); //FIXME: send async message to audio
-                                                              //thread?
+                                audio_engine.play(note); //FIXME: send async message to audio
+                                                         //thread?
                             }
                         }
                     }
@@ -121,6 +121,6 @@ fn main_loop<W: std::io::Write>(
             Duration::from_millis(1)
         };
 
-        thread::sleep(sleep_time);
+        // thread::sleep(sleep_time);
     }
 }
